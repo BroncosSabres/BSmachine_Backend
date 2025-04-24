@@ -11,9 +11,9 @@ CORS(app)
 @app.route('/latest-results')
 def latest_results():
     url = 'https://www.nrl.com/draw/data?competition=111&season=2025&round=8'
-    headers = {'User-Agent': 'Mozilla/5.0'}  # Required to avoid 403 errors
+    headers = {'User-Agent': 'Mozilla/5.0'}
     res = requests.get(url, headers=headers)
-    data = res.json()  # Now safe
+    data = res.json()
 
     results = []
     for match in data.get("fixtures", []):
@@ -32,8 +32,11 @@ def latest_results():
                 'winner': winner
             })
 
-    return Response(json.dumps(results), mimetype='application/json')
-
+    return app.response_class(
+        response=json.dumps(results),
+        status=200,
+        mimetype='application/json'
+    )
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
