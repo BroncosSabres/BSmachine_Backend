@@ -1,8 +1,9 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, Response
 import requests
 from bs4 import BeautifulSoup
 import os
 from flask_cors import CORS
+import json
 
 app = Flask(__name__)
 CORS(app)  
@@ -31,7 +32,7 @@ def latest_results():
                 'winner': winner
             })
 
-    return jsonify(results)
+    return Response(json.dumps(results), mimetype='application/json')
 
 
 if __name__ == '__main__':
