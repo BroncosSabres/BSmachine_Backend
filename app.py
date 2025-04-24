@@ -2,8 +2,10 @@ from flask import Flask, jsonify
 import requests
 from bs4 import BeautifulSoup
 import os
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)  
 
 @app.route('/latest-results')
 def latest_results():
