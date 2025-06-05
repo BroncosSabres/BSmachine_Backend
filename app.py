@@ -14,6 +14,43 @@ cache = {
     "timestamp": 0
 }
 
+# Round lookup cache (1 hr)
+round_cache = {
+    "season": None,
+    "round": None,
+    "timestamp": 0
+}
+
+def get_current_season_and_round():
+    now = time.time()
+    cache_duration = 3600  # 1 hour
+
+    # Use cached round if still valid
+    if round_cache["season"] and (now - round_cache["timestamp"]) < cache_duration:
+        return round_cache["season"], round_cache["round"]
+
+    try:
+        url = "https://www.nrl.com/draw/data"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        res.raise_for_status()
+        data = res.json()
+
+        current_year = datetime.now().year
+        matches = [m for m in data if m.get("season") == current_year and m.get("round")]
+        rounds = [m["round"] for m in matches]
+        current_round = max(rounds) if rounds else 1
+
+        round_cache["season"] = current_year
+        round_cache["round"] = current_round
+        round_cache["timestamp"] = now
+
+        return current_year, current_round
+    except Exception as e:
+        print(f"Error getting current round: {e}")
+        return datetime.now().year, 1  # fallback
+
+
 @app.route('/latest-results')
 def latest_results():
     now = time.time()
@@ -28,7 +65,9 @@ def latest_results():
         )
 
     # Otherwise fetch fresh data
-    url = 'https://www.nrl.com/draw/data?competition=111&season=2025&round=8'
+    # Get current season and round
+    season, round_num = get_current_season_and_round()
+    url = f'https://www.nrl.com/draw/data?competition=111&season={season}&round={round_num}'
     headers = {'User-Agent': 'Mozilla/5.0'}
     res = requests.get(url, headers=headers)
     data = res.json()
