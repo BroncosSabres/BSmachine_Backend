@@ -53,6 +53,7 @@ def get_current_season_and_round():
         round_cache["round"] = current_round
         round_cache["timestamp"] = now
 
+        print(f"[DEBUG] Returning current round: {current_year}, {current_round}")
         return current_year, current_round
     except Exception as e:
         print(f"Error getting current round: {e}")
