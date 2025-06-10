@@ -22,6 +22,13 @@ round_cache = {
     "timestamp": 0
 }
 
+# map NRL nicknames to your site’s naming convention
+TEAM_NAME_MAP = {
+    'Sea Eagles': 'Manly',
+    'Wests Tigers': 'Tigers',
+    # Add others if needed in future
+}
+
 def get_current_season_and_round():
     now = time.time()
     cache_duration = 3600  # 1 hour
@@ -76,8 +83,8 @@ def latest_results():
 
     results = []
     for match in data.get("fixtures", []):
-        home_team = match['homeTeam']['nickName']
-        away_team = match['awayTeam']['nickName']
+        home_team = TEAM_NAME_MAP.get(match['homeTeam']['nickName'], match['homeTeam']['nickName'])
+        away_team = TEAM_NAME_MAP.get(match['awayTeam']['nickName'], match['awayTeam']['nickName'])
         home_score = match['homeTeam'].get('score')
         away_score = match['awayTeam'].get('score')
 
