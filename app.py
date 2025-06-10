@@ -6,6 +6,7 @@ from flask_cors import CORS
 import json
 import time
 from datetime import datetime
+import re
 
 app = Flask(__name__)
 CORS(app)  
@@ -29,6 +30,15 @@ TEAM_NAME_MAP = {
     # Add others if needed in future
 }
 
+def extract_round(match):
+    if "roundTitle" in match and match["roundTitle"].startswith("Round"):
+        return int(match["roundTitle"].split()[-1])
+    elif "matchCentreUrl" in match:
+        m = re.search(r'round-(\d+)', match["matchCentreUrl"])
+        if m:
+            return int(m.group(1))
+    return None
+
 def get_current_season_and_round():
     now = time.time()
     cache_duration = 3600  # 1 hour
@@ -45,9 +55,20 @@ def get_current_season_and_round():
         res.raise_for_status()
         data = res.json()
 
+        fixtures = data.get("fixtures", [])
         current_year = datetime.now().year
-        matches = [m for m in data if m.get("season") == current_year and m.get("round")]
-        rounds = [m["round"] for m in matches]
+
+        matches = [
+            m for m in fixtures
+            if (
+                m.get("season") == current_year
+                and m.get("round")
+                and m.get("homeTeam", {}).get("score") is not None
+                and m.get("awayTeam", {}).get("score") is not None
+            )
+        ]
+        
+        rounds = [extract_round(m) for m in matches if extract_round(m) is not None]
         current_round = max(rounds) if rounds else 1
 
         round_cache["season"] = current_year
@@ -55,7 +76,9 @@ def get_current_season_and_round():
         round_cache["timestamp"] = now
 
         print(f"[DEBUG] Returning current round: {current_year}, {current_round}")
+        
         return current_year, current_round
+    
     except Exception as e:
         print(f"Error getting current round: {e}")
         return datetime.now().year, 1  # fallback
