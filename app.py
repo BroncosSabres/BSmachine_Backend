@@ -57,20 +57,17 @@ def get_current_season_and_round():
 
         fixtures = data.get("fixtures", [])
         current_year = datetime.now().year
+        selected = data.get("selectedRoundId", 1)
+        fixtures = data.get("fixtures", [])
 
-        matches = [
-            m for m in fixtures
-            if (
-                m.get("season") == current_year
-                and m.get("round")
-                and m.get("homeTeam", {}).get("score") is not None
-                and m.get("awayTeam", {}).get("score") is not None
-            )
-        ]
+        any_played = any(
+            (m.get("homeTeam", {}).get("score") is not None or
+             m.get("awayTeam", {}).get("score") is not None)
+            for m in fixtures
+        )
+
+        current_round = selected if any_played else max(1, selected - 1)
         
-        rounds = [extract_round(m) for m in matches if extract_round(m) is not None]
-        current_round = max(rounds) if rounds else 1
-
         round_cache["season"] = current_year
         round_cache["round"] = current_round
         round_cache["timestamp"] = now
