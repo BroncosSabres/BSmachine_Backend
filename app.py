@@ -35,6 +35,7 @@ def get_current_season_and_round():
 
     # Use cached round if still valid
     if round_cache["season"] and (now - round_cache["timestamp"]) < cache_duration:
+        print(f"[CACHE] Returning cached round: {round_cache['season']}, {round_cache['round']}")
         return round_cache["season"], round_cache["round"]
 
     try:
