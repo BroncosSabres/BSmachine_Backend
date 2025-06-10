@@ -68,8 +68,8 @@ def latest_results():
     # Otherwise fetch fresh data
     # Get current season and round
     #season, round_num = get_current_season_and_round()
-    #url = f'https://www.nrl.com/draw/data?competition=111&season={season}&round={round_num}'
-    url = f'https://www.nrl.com/draw/data?competition=111&season=2025&round=14'
+    url = f'https://www.nrl.com/draw/data?competition=111&season={season}&round={round_num}'
+    #url = f'https://www.nrl.com/draw/data?competition=111&season=2025&round=15'
     headers = {'User-Agent': 'Mozilla/5.0'}
     res = requests.get(url, headers=headers)
     data = res.json()
