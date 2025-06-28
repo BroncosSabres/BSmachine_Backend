@@ -215,6 +215,55 @@ def current_round_matches():
     conn.close()
     return jsonify(matches)
 
+@app.route('/api/match_team_lists/<int:match_id>')
+def match_team_lists(match_id):
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    # Get home/away team IDs and names for the match
+    cur.execute("""
+        SELECT m.home_team_id, m.away_team_id, t1.name as home_team, t2.name as away_team
+        FROM matches m
+        JOIN teams t1 ON m.home_team_id = t1.id
+        JOIN teams t2 ON m.away_team_id = t2.id
+        WHERE m.id = %s
+    """, (match_id,))
+    match = cur.fetchone()
+    if not match:
+        cur.close()
+        conn.close()
+        return jsonify({"error": "Match not found"}), 404
+
+    # Get players for home team
+    cur.execute("""
+        SELECT p.id, p.name, tl.position, tl.starter
+        FROM team_list tl
+        JOIN players p ON tl.player_id = p.id
+        WHERE tl.match_id = %s AND tl.team_id = %s
+        ORDER BY tl.starter DESC, tl.position
+    """, (match_id, match['home_team_id']))
+    home_players = cur.fetchall()
+
+    # Get players for away team
+    cur.execute("""
+        SELECT p.id, p.name, tl.position, tl.starter
+        FROM team_list tl
+        JOIN players p ON tl.player_id = p.id
+        WHERE tl.match_id = %s AND tl.team_id = %s
+        ORDER BY tl.starter DESC, tl.position
+    """, (match_id, match['away_team_id']))
+    away_players = cur.fetchall()
+
+    cur.close()
+    conn.close()
+    return jsonify({
+        "home_team": match['home_team'],
+        "home_players": home_players,
+        "away_team": match['away_team'],
+        "away_players": away_players
+    })
+
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port, debug=True)
