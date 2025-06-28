@@ -110,7 +110,7 @@ def multinomial_at_least(n, probs, mins):
         subsets.append(subset)
 
     for subset in subsets:
-        sign = (-1) ** (len(subset))
+        sign = (-1) ** (len(subset) + 1)
         upper_limits = [mins[i] - 1 if i in subset else n for i in range(K)]
         allocs = []
         def gen(idx, remaining, cur):
