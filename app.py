@@ -237,7 +237,7 @@ def match_team_lists(match_id):
     # Get all players for the team (excluding 'Replacement')
     def get_team_players(team_id):
         cur.execute("""
-            SELECT p.id, p.name, tl.position, tl.starter, tl.jersey_number
+            SELECT p.id, p.name, tl.position, tl.starter, tl.jersey_number, tl.team_id
             FROM team_list tl
             JOIN players p ON tl.player_id = p.id
             WHERE tl.match_id = %s AND tl.team_id = %s AND tl.position <> 'Replacement'
