@@ -4,3 +4,5 @@ beautifulsoup4
 flask-cors
 gunicorn
 psycopg2-binary
+numpy
+scipy
