@@ -435,7 +435,8 @@ def player_try_probabilities(match_id, team_id):
             JOIN rounds r ON m.round_id = r.id
             WHERE ps.player_id = %s
               AND r.season_id = ANY(%s)
-        """, (pid, recent_season_ids))
+              AND ps.position = %s
+        """, (pid, recent_season_ids, position))
         stats = cur.fetchone()
         tries = stats['tries'] or 0
         matches_played = stats['matches_played'] or 0
