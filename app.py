@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, Response
+from flask import Flask, jsonify, Response, request
 import requests
 from bs4 import BeautifulSoup
 import os
@@ -9,6 +9,8 @@ from datetime import datetime
 import re
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import numpy as np
+from scipy.special import comb, factorial
 
 def get_db_connection():
     return psycopg2.connect(
@@ -89,7 +91,65 @@ def get_current_season_and_round():
     except Exception as e:
         print(f"Error getting current round: {e}")
         return datetime.now().year, 1  # fallback
+    
+def multinomial_at_least(n, probs, mins):
+    """
+    Compute P(X1 >= mins[0], X2 >= mins[1], ..., XK >= mins[K-1]) 
+    where (X1,...,XK, X_other) ~ Multinomial(n, [p1,...,pK, p_other]).
+    Uses inclusion-exclusion principle.
+    """
+    K = len(probs)
+    p_other = 1.0 - sum(probs)
+    all_probs = list(probs) + [p_other]
+    all_mins = list(mins) + [0] # 'other' has no lower limit
+    
+    total = 0.0
+    subsets = []
+    for mask in range(1, 1 << K):
+        subset = [i for i in range(K) if (mask & (1 << i))]
+        subsets.append(subset)
 
+    for subset in subsets:
+        sign = (-1) ** (len(subset))
+        upper_limits = [mins[i] - 1 if i in subset else n for i in range(K)]
+        allocs = []
+        def gen(idx, remaining, cur):
+            if idx == K:
+                cur_other = remaining
+                if cur_other >= 0:
+                    allocs.append(cur + [cur_other])
+                return
+            max_k = min(upper_limits[idx], remaining)
+            for x in range(0, max_k + 1):
+                gen(idx + 1, remaining - x, cur + [x])
+        gen(0, n, [])
+        prob = 0.0
+        for alloc in allocs:
+            multinom = factorial(n)
+            for x in alloc:
+                multinom /= factorial(x)
+            p = 1.0
+            for i, x in enumerate(alloc):
+                p *= all_probs[i] ** x
+            prob += multinom * p
+        total += sign * prob
+    return 1.0 - total
+
+def joint_min_tries_probability(try_dist, player_probs, min_tries):
+    """
+    try_dist: dict of {n_tries: prob}
+    player_probs: list of per-try probabilities for selected players
+    min_tries: list of minimum required tries for each selected player
+    Returns: joint probability
+    """
+    result = 0.0
+    for n_tries_str, p_n in try_dist.items():
+        n_tries = int(n_tries_str)
+        if n_tries < sum(min_tries):
+            continue
+        joint_prob = multinomial_at_least(n_tries, player_probs, min_tries)
+        result += p_n * joint_prob
+    return result
 
 @app.route('/latest-results')
 def latest_results():
@@ -434,6 +494,29 @@ def match_try_distribution(match_id, team_id):
         # If there is no data, return an empty dict or a default distribution
         return jsonify({})
     return jsonify(row['distribution'])
+
+@app.route('/api/sgm_probability', methods=['POST'])
+def sgm_probability():
+    """
+    Expects JSON body:
+    {
+        "try_dist": {"0":0.05,"1":0.10,"2":0.20,...},
+        "player_probs": [0.22, 0.15, ...],
+        "min_tries": [1, 1, ...]
+    }
+    """
+    data = request.get_json()
+    try_dist = data.get('try_dist', {})
+    player_probs = data.get('player_probs', [])
+    min_tries = data.get('min_tries', [])
+
+    # Validation
+    if not try_dist or not player_probs or not min_tries or len(player_probs) != len(min_tries):
+        return jsonify({"error": "Invalid input"}), 400
+
+    prob = joint_min_tries_probability(try_dist, player_probs, min_tries)
+    return jsonify({"probability": prob})
+
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
