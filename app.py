@@ -7,6 +7,16 @@ import json
 import time
 from datetime import datetime
 import re
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+def get_db_connection():
+    return psycopg2.connect(
+        host=os.environ.get('PGHOST'),
+        dbname=os.environ.get('PGDATABASE'),
+        user=os.environ.get('PGUSER'),
+        password=os.environ.get('PGPASSWORD')
+    )
 
 app = Flask(__name__)
 CORS(app)  
@@ -129,6 +139,81 @@ def latest_results():
         status=200,
         mimetype='application/json'
     )
+    
+@app.route('/api/upcoming_matches')
+def upcoming_matches():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT
+            m.id as match_id,
+            m.date,
+            r.round_number,
+            s.year as season_year,
+            t_home.name as home_team,
+            t_away.name as away_team,
+            m.venue
+        FROM matches m
+        JOIN rounds r ON m.round_id = r.id
+        JOIN seasons s ON r.season_id = s.id
+        JOIN teams t_home ON m.home_team_id = t_home.id
+        JOIN teams t_away ON m.away_team_id = t_away.id
+        WHERE m.is_finished = FALSE
+          AND m.date >= CURRENT_DATE
+        ORDER BY m.date ASC, r.round_number ASC
+    """)
+    matches = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify(matches)
+
+@app.route('/api/current_round_matches')
+def current_round_matches():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    # 1. Get the current round_id (whose start_date <= today)
+    cur.execute("""
+        SELECT id, round_number, season_id
+        FROM rounds
+        WHERE start_date <= CURRENT_DATE
+        ORDER BY start_date DESC
+        LIMIT 1
+    """)
+    round_row = cur.fetchone()
+    if not round_row:
+        cur.close()
+        conn.close()
+        return jsonify({"error": "No round found"}), 404
+
+    round_id = round_row["id"]
+
+    # 2. Get all matches for that round
+    cur.execute("""
+        SELECT
+            m.id as match_id,
+            m.date,
+            r.round_number,
+            s.year as season_year,
+            t_home.name as home_team,
+            t_away.name as away_team,
+            m.venue,
+            m.is_finished,
+            m.home_score,
+            m.away_score
+        FROM matches m
+        JOIN rounds r ON m.round_id = r.id
+        JOIN seasons s ON r.season_id = s.id
+        JOIN teams t_home ON m.home_team_id = t_home.id
+        JOIN teams t_away ON m.away_team_id = t_away.id
+        WHERE m.round_id = %s
+        ORDER BY m.date ASC
+    """, (round_id,))
+
+    matches = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify(matches)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
