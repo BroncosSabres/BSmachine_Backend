@@ -340,6 +340,100 @@ def match_team_lists(match_id):
         "away_team": match['away_team'],
         "away_players": away_players
     })
+    
+@app.route('/api/player_try_probabilities/<int:match_id>/<int:team_id>')
+def player_try_probabilities(match_id, team_id):
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    # Get last 3 seasons' IDs
+    cur.execute("SELECT id FROM seasons ORDER BY year DESC LIMIT 2")
+    recent_season_ids = [row['id'] for row in cur.fetchall()]
+
+    # Get all players named for this match/team, with position
+    cur.execute("""
+        SELECT p.id, tl.position
+        FROM team_list tl
+        JOIN players p ON tl.player_id = p.id
+        WHERE tl.match_id = %s AND tl.team_id = %s AND tl.position <> 'Replacement'
+    """, (match_id, team_id))
+    player_rows = cur.fetchall()
+
+    try_probs = {}
+    pos_try_rates = {}  # position: list of (prob, matches_played)
+
+    # Calculate probability and store (prob, matches_played) for position
+    for row in player_rows:
+        pid = row['id']
+        position = row['position']
+        cur.execute("""
+            SELECT 
+                SUM(COALESCE(ps.tries, 0)) AS tries,
+                COUNT(*) AS matches_played
+            FROM player_stats ps
+            JOIN matches m ON ps.match_id = m.id
+            JOIN rounds r ON m.round_id = r.id
+            WHERE ps.player_id = %s
+              AND r.season_id = ANY(%s)
+        """, (pid, recent_season_ids))
+        stats = cur.fetchone()
+        tries = stats['tries'] or 0
+        matches_played = stats['matches_played'] or 0
+        if matches_played >= 5:
+            effective_tries = tries if tries > 0 else 1
+            prob = effective_tries / matches_played
+            try_probs[pid] = prob
+            pos_try_rates.setdefault(position, []).append((prob, matches_played))
+        else:
+            try_probs[pid] = None  # flag for fallback
+
+    # Now set fallback probabilities for low-sample players
+    for row in player_rows:
+        pid = row['id']
+        position = row['position']
+        if try_probs[pid] is None:
+            # Get all position rates with >= 5 matches
+            pos_list = [prob for prob, matches in pos_try_rates.get(position, []) if matches >= 5]
+            if pos_list:
+                avg = sum(pos_list) / len(pos_list)
+            else:
+                # Fallback to overall mean (players with >=5 matches)
+                all_probs = [prob for pid2, prob in try_probs.items() if prob is not None]
+                avg = sum(all_probs) / len(all_probs) if all_probs else 0.05
+            try_probs[pid] = avg
+            
+    # 5. NORMALIZE: so each value is the probability any given try by this team is scored by that player
+    total_rate = sum(try_probs.values())
+    if total_rate > 0:
+        norm_try_probs = {str(pid): prob / total_rate for pid, prob in try_probs.items()}
+    else:
+        n = len(try_probs)
+        norm_try_probs = {str(pid): 1 / n for pid in try_probs} if n > 0 else {}
+
+    cur.close()
+    conn.close()
+    return jsonify(norm_try_probs)
+
+@app.route('/api/match_try_distribution/<int:match_id>/<int:team_id>')
+def match_try_distribution(match_id, team_id):
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("""
+        SELECT distribution
+        FROM match_try_distributions
+        WHERE match_id = %s AND team_id = %s
+        ORDER BY generated_at DESC
+        LIMIT 1
+    """, (match_id, team_id))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not row or not row['distribution']:
+        # If there is no data, return an empty dict or a default distribution
+        return jsonify({})
+    return jsonify(row['distribution'])
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
