@@ -234,25 +234,103 @@ def match_team_lists(match_id):
         conn.close()
         return jsonify({"error": "Match not found"}), 404
 
-    # Get players for home team
-    cur.execute("""
-        SELECT p.id, p.name, tl.position, tl.starter
-        FROM team_list tl
-        JOIN players p ON tl.player_id = p.id
-        WHERE tl.match_id = %s AND tl.team_id = %s
-        ORDER BY tl.starter DESC, tl.position
-    """, (match_id, match['home_team_id']))
-    home_players = cur.fetchall()
+    # Get all players for the team (excluding 'Replacement')
+    def get_team_players(team_id):
+        cur.execute("""
+            SELECT p.id, p.name, tl.position, tl.starter, tl.jersey_number
+            FROM team_list tl
+            JOIN players p ON tl.player_id = p.id
+            WHERE tl.match_id = %s AND tl.team_id = %s AND tl.position <> 'Replacement'
+        """, (match_id, team_id))
+        players = cur.fetchall()
+        return players
 
-    # Get players for away team
-    cur.execute("""
-        SELECT p.id, p.name, tl.position, tl.starter
-        FROM team_list tl
-        JOIN players p ON tl.player_id = p.id
-        WHERE tl.match_id = %s AND tl.team_id = %s
-        ORDER BY tl.starter DESC, tl.position
-    """, (match_id, match['away_team_id']))
-    away_players = cur.fetchall()
+    # Helper to select team list in NRL order
+    def order_nrl_team_list(players):
+        # Normalize and group players
+        pos_map = {
+            'FB': 'Fullback', 'Fullback': 'Fullback',
+            'WG': 'Wing', 'Wing': 'Wing',
+            'CE': 'Centre', 'Centre': 'Centre',
+            'FE': 'Five-eighth', 'Five-eighth': 'Five-eighth',
+            'HB': 'Halfback', 'Halfback': 'Halfback',
+            'PR': 'Front row', 'Front row': 'Front row', 
+            'HK': 'Hooker', 'Hooker': 'Hooker',
+            'SR': 'Second row', 'Second row': 'Second row',
+            'LK': 'Lock', 'Lock': 'Lock',
+            'Interchange': 'Bench', 'Bench': 'Bench', 'Reserve': 'Bench'
+        }
+
+        # Normalize positions
+        for p in players:
+            p['norm_pos'] = pos_map.get(p['position'], p['position'])
+        used_players = set()
+        result = []
+
+        # Helper to pick from group and mark used
+        def pick(players, norm_pos, pick='min'):
+            # pick: 'min' (lowest jersey), 'max' (highest jersey)
+            candidates = [p for p in players if p['norm_pos'] == norm_pos and p['id'] not in used_players]
+            if not candidates:
+                return None
+            candidates = [p for p in candidates if p['jersey_number'] is not None]
+            if not candidates:
+                return None
+            target = min(candidates, key=lambda x: x['jersey_number']) if pick == 'min' else max(candidates, key=lambda x: x['jersey_number'])
+            used_players.add(target['id'])
+            return target
+
+        # 1. Fullback
+        fb = pick(players, 'Fullback')
+        if fb: result.append(fb)
+        # 2. Wing (lowest jersey)
+        wing1 = pick(players, 'Wing', pick='min')
+        if wing1: result.append(wing1)
+        # 3. Centre (lowest jersey)
+        centre1 = pick(players, 'Centre', pick='min')
+        if centre1: result.append(centre1)
+        # 4. Centre (highest jersey)
+        centre2 = pick(players, 'Centre', pick='max')
+        if centre2: result.append(centre2)
+        # 5. Wing (highest jersey)
+        wing2 = pick(players, 'Wing', pick='max')
+        if wing2: result.append(wing2)
+        # 6. Five-eighth
+        fe = pick(players, 'Five-eighth')
+        if fe: result.append(fe)
+        # 7. Halfback
+        hb = pick(players, 'Halfback')
+        if hb: result.append(hb)
+        # 8. Prop (lowest jersey)
+        prop1 = pick(players, 'Front row', pick='min')
+        if prop1: result.append(prop1)
+        # 9. Hooker
+        hk = pick(players, 'Hooker')
+        if hk: result.append(hk)
+        # 10. Prop (highest jersey)
+        prop2 = pick(players, 'Front row', pick='max')
+        if prop2: result.append(prop2)
+        # 11. Second Row (lowest jersey)
+        sr1 = pick(players, 'Second row', pick='min')
+        if sr1: result.append(sr1)
+        # 12. Second Row (highest jersey)
+        sr2 = pick(players, 'Second row', pick='max')
+        if sr2: result.append(sr2)
+        # 13. Lock
+        lk = pick(players, 'Lock')
+        if lk: result.append(lk)
+        # 14–17. Bench (lowest jerseys)
+        bench = [p for p in players if p['norm_pos'] == 'Bench' and p['id'] not in used_players]
+        bench = [p for p in bench if p['jersey_number'] is not None]
+        bench.sort(key=lambda x: x['jersey_number'])
+        for p in bench[:4]:
+            used_players.add(p['id'])
+            result.append(p)
+        return result
+
+    # Get and order home and away teams
+    home_players = order_nrl_team_list(get_team_players(match['home_team_id']))
+    away_players = order_nrl_team_list(get_team_players(match['away_team_id']))
 
     cur.close()
     conn.close()
