@@ -496,6 +496,97 @@ def match_try_distribution(match_id, team_id):
         return jsonify({})
     return jsonify(row['distribution'])
 
+@app.route('/api/match_sgm_bins_range/<int:match_id>')
+def match_sgm_bins_range(match_id):
+    # Get filters from query parameters
+    margin_gte = request.args.get('margin_gte', type=int)
+    margin_lte = request.args.get('margin_lte', type=int)
+    total_gte = request.args.get('total_gte', type=int)
+    total_lte = request.args.get('total_lte', type=int)
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("""
+        SELECT margin, total_points, home_try_dist, away_try_dist, count
+        FROM match_sgm_bins
+        WHERE match_id = %s
+    """, (match_id,))
+    bins = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    # Filter bins according to query params
+    filtered_bins = []
+    for row in bins:
+        m, t = row['margin'], row['total_points']
+        if margin_gte is not None and m < margin_gte:
+            continue
+        if margin_lte is not None and m > margin_lte:
+            continue
+        if total_gte is not None and t < total_gte:
+            continue
+        if total_lte is not None and t > total_lte:
+            continue
+        filtered_bins.append(row)
+
+    if not filtered_bins:
+        return jsonify({"error": "No bins found for selection"}), 404
+
+    # Aggregate distributions weighted by count
+    total_count = sum(row['count'] for row in filtered_bins) or 1
+    agg_home_dist = {}
+    agg_away_dist = {}
+    for row in filtered_bins:
+        c = row['count']
+        # Home tries
+        for k, v in row['home_try_dist'].items():
+            agg_home_dist[k] = agg_home_dist.get(k, 0) + v * c
+        # Away tries
+        for k, v in row['away_try_dist'].items():
+            agg_away_dist[k] = agg_away_dist.get(k, 0) + v * c
+
+    # Normalize
+    for k in agg_home_dist:
+        agg_home_dist[k] /= total_count
+    for k in agg_away_dist:
+        agg_away_dist[k] /= total_count
+
+    # Probability of being in the selected bins
+    total_bins_count = sum(row['count'] for row in bins) or 1
+    selection_prob = total_count / total_bins_count
+
+    return jsonify({
+        "match_id": match_id,
+        "margin_filter": {"gte": margin_gte, "lte": margin_lte},
+        "total_points_filter": {"gte": total_gte, "lte": total_lte},
+        "home_try_dist": agg_home_dist,
+        "away_try_dist": agg_away_dist,
+        "total_count": total_count,
+        "prob": selection_prob
+    })
+    
+@app.route('/api/match_sgm_bins_lines/<int:match_id>')
+def match_sgm_bins_lines(match_id):
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT DISTINCT margin, total_points
+        FROM match_sgm_bins
+        WHERE match_id = %s
+        ORDER BY margin, total_points
+    """, (match_id,))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    margins = sorted(set(row['margin'] for row in rows))
+    totals = sorted(set(row['total_points'] for row in rows))
+    return jsonify({
+        "margins": margins,
+        "totals": totals
+    })
+
 @app.route('/api/sgm_probability', methods=['POST'])
 def sgm_probability():
     """
